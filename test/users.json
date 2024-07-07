@@ -1,0 +1,20 @@
+{
+    "users": [
+      {
+        "display_name": "userA",
+        "token": "dummy_token_for_userA"
+      },
+      {
+        "display_name": "userB",
+        "token": "dummy_token_for_userB"
+      },
+      {
+        "display_name": "userC",
+        "token": "dummy_token_for_userC"
+      },
+      {
+        "display_name": "newUser",
+        "token": "dummy_token_for_newUser"
+      }
+    ]
+  }

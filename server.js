@@ -86,14 +86,14 @@ function setupSocketListeners(socket) {
                 io.to(artistName).emit('user_left', `${socket.user.display_name} left ${artistName} chat`);
             });
 
-            socket.on('chat_message', (message) => {
-                console.log(`Message received from ${socket.user.display_name}: ${message}`);
+            socket.on('chat_message', (payload) => {
+                console.log(`Message received from ${socket.user.display_name}: ${payload.message}`);
                 const rooms = Array.from(socket.rooms);
                 const artistRoom = rooms.find(room => room !== socket.id);
                 if (artistRoom) {
                     io.to(artistRoom).emit('chat_message', {
                         user: socket.user.display_name,
-                        message: message
+                        message: payload.message
                     });
                 } else {
                     console.log(`No artist room found for user ${socket.user.display_name}`);
