@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const SpotifyWebApi = require('spotify-web-api-node');
+const CircularBuffer = require('./CircularBuffer'); // Import the CircularBuffer class
 
 const app = express();
 const server = http.createServer(app);
@@ -14,8 +15,11 @@ const io = require('socket.io')(server, {
 const spotifyApi = new SpotifyWebApi({
     clientId: process.env.SPOTIFY_CLIENT_ID,
     clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-    redirectUri: process.env.SPOTIFY_REDIRECT_URIß
+    redirectUri: process.env.SPOTIFY_REDIRECT_URI
 });
+
+// Store messages for each room using CircularBuffer with a size of 100
+const messageBuffers = {}; 
 
 // Refresh token logic
 async function refreshAccessToken() {
@@ -28,7 +32,6 @@ async function refreshAccessToken() {
         throw new Error('Error refreshing access token');
     }
 }
-
 
 function startRefreshTokenInterval() {
     refreshTokenInterval = setInterval(refreshAccessToken, 1000 * 60 * 30); // Refresh token every 30 minutes
@@ -73,12 +76,32 @@ function setupSocketListeners(socket) {
         }
     });
 
-    socket.on('get_current_song', async () => {
+    socket.on('get_current_song', async (artistName) => {
         try {
-            const currentPlayback = await getCurrentPlayback();
-            const artistName = currentPlayback.item.artists[0].name;
-            socket.join(artistName);
-            console.log(`User ${socket.user.display_name} joined room: ${artistName}`);
+            if (artistName) {
+                socket.join(artistName);
+                socket.room = artistName;
+                console.log(`User ${socket.user.display_name} joined room: ${artistName}`);
+            } else {
+                const currentPlayback = await getCurrentPlayback();
+                const artistName = currentPlayback.item.artists[0].name;
+                socket.join(artistName);
+                socket.room = artistName;
+                console.log(`User ${socket.user.display_name} joined room: ${artistName}`);
+            }
+
+            // Initialize message buffer if it doesn't exist
+            if (!messageBuffers[artistName]) {
+                messageBuffers[artistName] = new CircularBuffer(100);
+            }
+
+            // Send last 100 messages to the new user
+            const last100Messages = messageBuffers[artistName].getAll();
+            console.log(`Last 100 messages for room ${artistName}:`, last100Messages);
+            last100Messages.forEach((msg) => {
+                socket.emit('chat_message', msg);
+            });
+
             io.to(artistName).emit('new_user', `${socket.user.display_name} joined ${artistName} chat`);
 
             socket.on('disconnect', () => {
@@ -88,16 +111,15 @@ function setupSocketListeners(socket) {
 
             socket.on('chat_message', (payload) => {
                 console.log(`Message received from ${socket.user.display_name}: ${payload.message}`);
-                const rooms = Array.from(socket.rooms);
-                const artistRoom = rooms.find(room => room !== socket.id);
-                if (artistRoom) {
-                    io.to(artistRoom).emit('chat_message', {
-                        user: socket.user.display_name,
-                        message: payload.message
-                    });
-                } else {
-                    console.log(`No artist room found for user ${socket.user.display_name}`);
-                }
+                const userMessage = {
+                    user: socket.user.display_name,
+                    message: payload.message
+                };
+
+                messageBuffers[artistName].add(userMessage);
+                console.log(`Updated message buffer for room ${artistName}:`, messageBuffers[artistName].getAll());
+
+                io.to(artistName).emit('chat_message', userMessage);
             });
         } catch (error) {
             console.error('Error getting current song', error);

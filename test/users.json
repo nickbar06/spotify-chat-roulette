@@ -1,16 +1,20 @@
 {
     "users": [
       {
-        "display_name": "userA",
+        "display_name": "user_A",
         "token": "dummy_token_for_userA"
       },
       {
-        "display_name": "userB",
+        "display_name": "user_B",
         "token": "dummy_token_for_userB"
       },
       {
-        "display_name": "userC",
+        "display_name": "user_C",
         "token": "dummy_token_for_userC"
+      },
+      {
+        "display_name": "nismonick",
+        "token": "dummy_token_for_nismonick"
       },
       {
         "display_name": "newUser",

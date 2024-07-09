@@ -8,10 +8,13 @@ const path = require('path');
 
 // Load users from the JSON file
 const users = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'users.json'))).users;
+// Load chatroom data from the JSON file
+const chatroom = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'chatroom.json')));
 
 describe('Socket.IO Server', () => {
   let testServer;
   let clients = [];
+  let chatroomClients = [];
   let currentRoom;
   let authenticateUserStub;
   let clientCredentialsGrantStub;
@@ -135,122 +138,161 @@ describe('Socket.IO Server', () => {
     });
   });
 
-  // test('should allow both users to see each other’s messages in the same room', (done) => {
-  //   currentRoom = 'artist1';
-  //   const messageA = { user: 'userA', message: 'hello' };
-  //   const messageB = { user: 'userB', message: 'world' };
+  test('should allow both users to see each other’s messages in the same room', (done) => {
+    currentRoom = 'artist1';
+    const messageA = { user: 'user_A', message: 'hello' };
+    const messageB = { user: 'user_B', message: 'world' };
 
-  //   let messageCount = 0;
+    let receivedMessagesA = [];
+    let receivedMessagesB = [];
 
-  //   clients[0].on('authenticated', () => {
-  //     console.log('Client A authenticated');
-  //     clients[0].emit('get_current_song', currentRoom);
-  //   });
+    clients[0].on('authenticated', () => {
+      console.log('Client A authenticated');
+      clients[0].emit('get_current_song', currentRoom);
+    });
 
-  //   clients[1].on('authenticated', () => {
-  //     console.log('Client B authenticated');
-  //     clients[1].emit('get_current_song', currentRoom);
-  //   });
+    clients[1].on('authenticated', () => {
+      console.log('Client B authenticated');
+      clients[1].emit('get_current_song', currentRoom);
+    });
 
-  //   clients[0].on('new_user', (message) => {
-  //     console.log('Client A new_user:', message);
-  //   });
+    clients[0].on('new_user', (message) => {
+      console.log('Client A new_user:', message);
+    });
 
-  //   clients[1].on('new_user', (message) => {
-  //     console.log('Client B new_user:', message);
-  //   });
+    clients[1].on('new_user', (message) => {
+      console.log('Client B new_user:', message);
+    });
 
-  //   clients[0].on('chat_message', (message) => {
-  //     console.log('Client A received message:', message);
-  //     if (message.user === 'userB' && message.message === 'world') {
-  //       messageCount++;
-  //       if (messageCount === 2) done();
-  //     }
-  //   });
+    clients[0].on('chat_message', (message) => {
+      console.log('Client A received message:', message);
+      receivedMessagesA.push(message);
+      if (receivedMessagesA.length === 2 && receivedMessagesB.length === 2) {
+        expect(receivedMessagesA).toEqual(expect.arrayContaining([messageA, messageB]));
+        expect(receivedMessagesB).toEqual(expect.arrayContaining([messageA, messageB]));
+        done();
+      }
+    });
 
-  //   clients[1].on('chat_message', (message) => {
-  //     console.log('Client B received message:', message);
-  //     if (message.user === 'userA' && message.message === 'hello') {
-  //       messageCount++;
-  //       if (messageCount === 2) done();
-  //     }
-  //   });
+    clients[1].on('chat_message', (message) => {
+      console.log('Client B received message:', message);
+      receivedMessagesB.push(message);
+      if (receivedMessagesA.length === 2 && receivedMessagesB.length === 2) {
+        expect(receivedMessagesA).toEqual(expect.arrayContaining([messageA, messageB]));
+        expect(receivedMessagesB).toEqual(expect.arrayContaining([messageA, messageB]));
+        done();
+      }
+    });
 
-  //   setTimeout(() => {
-  //     console.log('Sending messages');
-  //     clients[0].emit('chat_message', messageA);
-  //     clients[1].emit('chat_message', messageB);
-  //   }, 1000);
+    setTimeout(() => {
+      console.log('Sending messages');
+      clients[0].emit('chat_message', messageA);
+      clients[1].emit('chat_message', messageB);
+    }, 1000);
 
-  //   clients[0].emit('authenticate', users.find(user => user.display_name === 'userA').token);
-  //   clients[1].emit('authenticate', users.find(user => user.display_name === 'userB').token);
-  // }, 30000); // Increased timeout to 30000 ms (30 seconds)
+    clients[0].emit('authenticate', users.find(user => user.display_name === 'user_A').token);
+    clients[1].emit('authenticate', users.find(user => user.display_name === 'user_B').token);
+  }, 30000);  
+  
+  test('should not allow users to see each other’s messages in different rooms', (done) => {
+    const messageA = { user: 'user_A', message: 'hello' };
+    const messageB = { user: 'user_B', message: 'world' };
 
-  // test('should not allow users to see each other’s messages in different rooms', (done) => {
-  //   currentRoom = 'artist1';
-  //   const messageA = { user: 'userA', message: 'hello' };
-  //   const messageB = { user: 'userB', message: 'world' };
+    let receivedMessagesA = [];
+    let receivedMessagesB = [];
 
-  //   let messageCountA = 0;
-  //   let messageCountB = 0;
+    clients[0].on('authenticated', () => {
+      console.log('Client A authenticated');
+      clients[0].emit('get_current_song', 'artist1');
+    });
 
-  //   clients[0].on('authenticated', () => {
-  //     console.log('Client A authenticated');
-  //     clients[0].emit('get_current_song', currentRoom);
-  //   });
+    clients[1].on('authenticated', () => {
+      console.log('Client B authenticated');
+      clients[1].emit('get_current_song', 'artist2');
+    });
 
-  //   currentRoom = 'artist2';
+    clients[0].on('new_user', (message) => {
+      console.log('Client A new_user:', message);
+    });
 
-  //   clients[1].on('authenticated', () => {
-  //     console.log('Client B authenticated');
-  //     clients[1].emit('get_current_song', currentRoom);
-  //   });
+    clients[1].on('new_user', (message) => {
+      console.log('Client B new_user:', message);
+    });
 
-  //   clients[0].on('new_user', (message) => {
-  //     console.log('Client A new_user:', message);
-  //   });
+    clients[0].on('chat_message', (message) => {
+      console.log('Client A received message:', message);
+      receivedMessagesA.push(message);
+      if (receivedMessagesA.length === 1 && receivedMessagesB.length === 1) {
+        expect(receivedMessagesA).toEqual(expect.arrayContaining([messageA]));
+        expect(receivedMessagesB).toEqual(expect.arrayContaining([messageB]));
+        done();
+      }
+    });
 
-  //   clients[1].on('new_user', (message) => {
-  //     console.log('Client B new_user:', message);
-  //   });
+    clients[1].on('chat_message', (message) => {
+      console.log('Client B received message:', message);
+      receivedMessagesB.push(message);
+      if (receivedMessagesA.length === 1 && receivedMessagesB.length === 1) {
+        expect(receivedMessagesA).toEqual(expect.arrayContaining([messageA]));
+        expect(receivedMessagesB).toEqual(expect.arrayContaining([messageB]));
+        done();
+      }
+    });
 
-  //   clients[0].on('chat_message', (message) => {
-  //     console.log('Client A received message:', message);
-  //     if (message.user === 'userB' && message.message === 'world') {
-  //       messageCountA++;
-  //     }
-  //     if (messageCountA === 0 && messageCountB === 0) done();
-  //   });
+    setTimeout(() => {
+      console.log('Sending messages');
+      clients[0].emit('chat_message', messageA);
+      clients[1].emit('chat_message', messageB);
+    }, 1000);
 
-  //   clients[1].on('chat_message', (message) => {
-  //     console.log('Client B received message:', message);
-  //     if (message.user === 'userA' && message.message === 'hello') {
-  //       messageCountB++;
-  //     }
-  //     if (messageCountA === 0 && messageCountB === 0) done();
-  //   });
+    clients[0].emit('authenticate', users.find(user => user.display_name === 'user_A').token);
+    clients[1].emit('authenticate', users.find(user => user.display_name === 'user_B').token);
+  }, 30000); // Increased timeout to 30000 ms (30 seconds)
 
-  //   setTimeout(() => {
-  //     console.log('Sending messages');
-  //     clients[0].emit('chat_message', messageA);
-  //     clients[1].emit('chat_message', messageB);
-  //   }, 1000);
-
-  //   clients[0].emit('authenticate', users.find(user => user.display_name === 'userA').token);
-  //   clients[1].emit('authenticate', users.find(user => user.display_name === 'userB').token);
-  // }, 30000); // Increased timeout to 30000 ms (30 seconds)
 
   test('should allow a new user to see all messages in room "ADTR"', (done) => {
-    currentRoom = 'ADTR';
+    currentRoom = chatroom.chatroomName;
+    const initialMessages = chatroom.messages.map(msg => ({
+      user: msg.display_name,
+      message: msg.message
+    }));
 
     let receivedMessages = [];
 
-    // Emit initial messages
-    initialMessages.forEach((msg, index) => {
-      setTimeout(() => {
-        const client = clients[index % 3]; // Rotate through clients A, B, and C
-        client.emit('chat_message', msg);
-      }, index * 100);
+    // Create socket connections for all users in chatroom.json
+    chatroomClients = chatroom.messages.reduce((acc, msg) => {
+      const user = users.find(u => u.display_name === msg.display_name);
+      if (user) {
+        const client = io('http://localhost:4000');
+        acc.push({ client, user });
+      }
+      return acc;
+    }, []);
+
+    // Authenticate and join the room for existing users
+    let authCount = 0;
+    chatroomClients.forEach(({ client, user }) => {
+      client.on('authenticated', () => {
+        client.emit('get_current_song', currentRoom);
+        authCount += 1;
+        if (authCount === chatroomClients.length) {
+          // Emit initial messages after all clients are authenticated and joined
+          initialMessages.forEach((msg, index) => {
+            setTimeout(() => {
+              const { client } = chatroomClients.find(c => c.user.display_name === msg.user);
+              client.emit('chat_message', msg);
+              console.log(`Message sent from ${msg.user}: ${msg.message}`);
+            }, index * 100);
+          });
+
+          // Delay new user authentication to ensure all initial messages are sent
+          setTimeout(() => {
+            console.log('Authenticating new client');
+            clients[3].emit('authenticate', users.find(user => user.display_name === 'newUser').token);
+          }, 2000); // 2 seconds to ensure all initial messages are sent
+        }
+      });
+      client.emit('authenticate', user.token);
     });
 
     clients[3].on('authenticated', () => {
@@ -268,7 +310,9 @@ describe('Socket.IO Server', () => {
     });
 
     setTimeout(() => {
-      clients[3].emit('authenticate', users.find(user => user.display_name === 'newUser').token);
-    }, 2000); // Delay new user authentication to ensure all initial messages are sent
+      console.log('Checking if all messages were received');
+      expect(receivedMessages.length).toBe(initialMessages.length);
+      done();
+    }, 10000); // 10 seconds to check if all messages were received
   }, 30000); // Increased timeout to 30000 ms (30 seconds)
 });
