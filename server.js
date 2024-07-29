@@ -5,7 +5,7 @@ const cors = require('cors');
 const axios = require('axios');
 const querystring = require('querystring');
 const CircularBuffer = require('./CircularBuffer');
-const {authenticateSocket} = require("./middleware/authMiddleware")
+const { authenticateSocket, authenticateUser } = require("./middleware/authMiddleware");
 
 const app = express();
 const server = http.createServer(app);
@@ -34,6 +34,7 @@ const spotifyApi = new (require('spotify-web-api-node'))({
 });
 
 const messageBuffers = {};
+global.users = {};
 
 async function refreshAccessToken(refreshToken) {
     try {
@@ -58,16 +59,6 @@ async function refreshAccessToken(refreshToken) {
     }
 }
 
-async function authenticateUser(accessToken) {
-    spotifyApi.setAccessToken(accessToken);
-    try {
-        const me = await spotifyApi.getMe();
-        return me.body;
-    } catch (error) {
-        throw new Error('Authentication error: ' + error.message);
-    }
-}
-
 async function getCurrentPlayback() {
     try {
         const currentPlayback = await spotifyApi.getMyCurrentPlaybackState();
@@ -80,35 +71,56 @@ async function getCurrentPlayback() {
 function setupSocketListeners(socket) {
     console.log("Setting up socket listeners");
 
+
     socket.on('get_current_song', async (artistName) => {
         try {
-            if (artistName) {
-                socket.join(artistName);
-                socket.room = artistName;
-                console.log(`User ${socket.user.display_name} joined room: ${artistName}`);
-            } else {
+            const joinRoom = async (artist) => {
+                socket.join(artist);
+                socket.room = artist;
+                console.log(`User ${socket.user.display_name} joined room: ${artist}`);
+            };
+
+            const emitCurrentSong = async () => {
                 const currentPlayback = await getCurrentPlayback(socket.user.accessToken);
                 const artistName = currentPlayback.item.artists[0].name;
-                socket.join(artistName);
-                socket.room = artistName;
-                console.log(`User ${socket.user.display_name} joined room: ${artistName}`);
+                await joinRoom(artistName);
+                io.to(socket.id).emit('current_song', {
+                    song: currentPlayback.item.name,
+                    artist: artistName,
+                    user: socket.user
+                });
+            };
+
+            console.log('getting current song')
+            if (artistName) {
+                await joinRoom(artistName);
+            } else {
+                await emitCurrentSong();
+                checkSongInterval = setInterval(async () => {
+                    try {
+                        await emitCurrentSong();
+                    } catch (error) {
+                        console.error('Error emitting current song:', error);
+                    }
+                }, 5000);
             }
 
-            if (!messageBuffers[artistName]) {
-                messageBuffers[artistName] = new CircularBuffer(100);
+            if (!messageBuffers[socket.room]) {
+                messageBuffers[socket.room] = new CircularBuffer(100);
             }
 
-            const last100Messages = messageBuffers[artistName].getAll();
-            console.log(`Last 100 messages for room ${artistName}:`, last100Messages);
+            const last100Messages = messageBuffers[socket.room].getAll();
+            console.log(`Last 100 messages for room ${socket.room}:`, last100Messages);
             last100Messages.forEach((msg) => {
                 socket.emit('chat_message', msg);
             });
 
-            io.to(artistName).emit('new_user', `${socket.user.display_name} joined ${artistName} chat`);
+            io.to(socket.room).emit('new_user', `${socket.user.display_name} joined ${socket.room} chat`);
 
             socket.on('disconnect', () => {
                 console.log('Client disconnected');
-                io.to(artistName).emit('user_left', `${socket.user.display_name} left ${artistName} chat`);
+                clearInterval(checkSongInterval);
+                io.to(socket.room).emit('user_left', `${socket.user.display_name} left ${socket.room} chat`);
             });
 
             socket.on('chat_message', (payload) => {
@@ -118,65 +130,50 @@ function setupSocketListeners(socket) {
                     message: payload.message
                 };
 
-                messageBuffers[artistName].add(userMessage);
-                console.log(`Updated message buffer for room ${artistName}:`, messageBuffers[artistName].getAll());
+                messageBuffers[socket.room].add(userMessage);
+                console.log(`Updated message buffer for room ${socket.room}:`, messageBuffers[socket.room].getAll());
 
-                io.to(artistName).emit('chat_message', userMessage);
+                io.to(socket.room).emit('chat_message', userMessage);
             });
         } catch (error) {
             console.error('Error getting current song', error);
         }
     });
 }
+
 app.get('/login', (req, res) => {
-    const clientId = process.env.SPOTIFY_CLIENT_ID;
-    const redirectUri = process.env.SPOTIFY_REDIRECT_URI;
-    const scopes = 'user-read-playback-state user-read-currently-playing';
-    const authorizeURL = `https://accounts.spotify.com/authorize?client_id=${encodeURIComponent(clientId)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`;
+    const scopes = ['user-read-playback-state', 'user-read-currently-playing'];
+    const authorizeURL = spotifyApi.createAuthorizeURL(scopes);
     res.json(authorizeURL);
 });
 
 app.get('/callback', async (req, res) => {
     console.log('Callback route hit');
     const code = req.query.code || null;
-    console.log('Authorization code:', req.query.code);
 
     if (!code) {
-        res.redirect('/#/error/invalid_code');
-        return;
+        return res.status(400).json({ error: 'Invalid code' });
     }
 
     try {
-        // Log the request being made
-        console.log('Making token exchange request with the following parameters:');
-        console.log('Grant type: authorization_code');
-        console.log('Code:', code);
-        console.log('Redirect URI:', process.env.SPOTIFY_REDIRECT_URI);
-        console.log('Client ID:', process.env.SPOTIFY_CLIENT_ID);
-        console.log('Client Secret:', process.env.SPOTIFY_CLIENT_SECRET);
-
         const data = await spotifyApi.authorizationCodeGrant(code);
         const { access_token, refresh_token } = data.body;
 
         spotifyApi.setAccessToken(access_token);
         spotifyApi.setRefreshToken(refresh_token);
 
-        console.log('Access Token:', access_token);
-        console.log('Refresh Token:', refresh_token);
-
         const user = await authenticateUser(access_token);
         const userId = user.id;
 
-        global.users = global.users || {};
         global.users[userId] = { accessToken: access_token, refreshToken: refresh_token, userInfo: user };
 
-        res.redirect(`http://localhost:4200/callback?userId=${userId}`);
+        res.json({ userId, access_token, refresh_token });
     } catch (error) {
         console.error('Error during Spotify authorization:', error);
         if (error.response) {
             console.error('Response data:', error.response.data);
         }
-        res.redirect('/#/error/invalid_token');
+        res.status(500).json({ error: 'Authorization failed' });
     }
 });
 
@@ -194,7 +191,9 @@ app.get('/refresh-token', async (req, res) => {
     }
 });
 
+
 io.use(authenticateSocket);
+
 
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.user.display_name);
