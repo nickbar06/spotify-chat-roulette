@@ -1,28 +1,31 @@
 {
   "name": "spotify-chat-roulette",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "test": "jest"
+    "dev": "concurrently -n api,web -c green,blue \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "node --watch server.js",
+    "dev:client": "npm run dev --prefix client",
+    "start": "node server.js",
+    "build": "npm run build --prefix client",
+    "test": "jest --runInBand",
+    "test:client": "npm run build --prefix client"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "Artist-based live chat for Spotify listeners",
   "dependencies": {
-    "axios": "^1.7.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "nodemon": "^3.1.4",
+    "express-session": "^1.19.0",
     "socket.io": "^4.7.5",
     "spotify-web-api-node": "^5.0.2"
   },
   "devDependencies": {
-    "chai": "^5.1.1",
+    "concurrently": "^9.2.1",
     "jest": "^29.7.0",
-    "mocha": "^10.6.0",
-    "sinon": "^18.0.0",
     "socket.io-client": "^4.7.5",
     "supertest": "^7.0.0"
   }
